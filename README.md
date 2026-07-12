@@ -1,4 +1,4 @@
-# Oh My Ponytail
+# OMP Ponytail
 
 A standalone [Oh My Pi](https://github.com/coder/oh-my-pi) (OMP) extension
 port of [Ponytail](https://github.com/DietrichGebert/ponytail). It provides
@@ -18,7 +18,7 @@ they do not contact GitHub.
 Install directly from the public repository:
 
 ```sh
-omp install github:wsouto/oh-my-ponytail
+omp install github:wsouto/omp-ponytail
 ```
 
 OMP accepts GitHub Git specs and installs this package through its plugin
@@ -33,14 +33,14 @@ For local development from `/home/wsouto/Projects`, use OMP's local plugin
 linker instead:
 
 ```sh
-omp install ./oh-my-ponytail
+omp install ./omp-ponytail
 omp plugin list
 ```
 
 Remove the plugin with:
 
 ```sh
-omp plugin uninstall oh-my-ponytail
+omp plugin uninstall omp-ponytail
 ```
 
 ## Commands and modes

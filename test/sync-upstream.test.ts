@@ -16,7 +16,7 @@ function sha256(content: string) {
 }
 
 async function temporaryRepository() {
-  const root = await mkdtemp(join(tmpdir(), "oh-my-ponytail-sync-"));
+  const root = await mkdtemp(join(tmpdir(), "omp-ponytail-sync-"));
   await cp(join(repositoryRoot, "skills"), join(root, "skills"), { recursive: true });
   await cp(join(repositoryRoot, "LICENSE"), join(root, "LICENSE"));
   await cp(join(repositoryRoot, "upstream-lock.json"), join(root, "upstream-lock.json"));

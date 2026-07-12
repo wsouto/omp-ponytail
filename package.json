@@ -1,5 +1,5 @@
 {
-  "name": "oh-my-ponytail",
+  "name": "omp-ponytail",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -26,10 +26,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/wsouto/oh-my-ponytail.git"
+    "url": "git+https://github.com/wsouto/omp-ponytail.git"
   },
-  "homepage": "https://github.com/wsouto/oh-my-ponytail#readme",
+  "homepage": "https://github.com/wsouto/omp-ponytail#readme",
   "bugs": {
-    "url": "https://github.com/wsouto/oh-my-ponytail/issues"
+    "url": "https://github.com/wsouto/omp-ponytail/issues"
   }
 }
