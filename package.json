@@ -1,0 +1,35 @@
+{
+  "name": "oh-my-ponytail",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "index.ts",
+    "skills/",
+    "scripts/sync-upstream.ts",
+    "upstream-lock.json",
+    "README.md",
+    "NOTICE",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "bun test ./test/*.test.ts",
+    "sync:upstream": "bun run ./scripts/sync-upstream.ts"
+  },
+  "peerDependencies": {
+    "@oh-my-pi/pi-coding-agent": "*"
+  },
+  "omp": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wsouto/oh-my-ponytail.git"
+  },
+  "homepage": "https://github.com/wsouto/oh-my-ponytail#readme",
+  "bugs": {
+    "url": "https://github.com/wsouto/oh-my-ponytail/issues"
+  }
+}

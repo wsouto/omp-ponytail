@@ -1,0 +1,8 @@
+node_modules/
+coverage/
+*.swp
+*.swo
+.DS_Store
+skills/**/*.tmp
+LICENSE.tmp
+upstream-lock.json.tmp
