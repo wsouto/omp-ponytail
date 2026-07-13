@@ -52,12 +52,18 @@ Use `/ponytail` to select a runtime mode:
 /ponytail ultra
 /ponytail status
 /ponytail default <off|lite|full|ultra>
+/ponytail update
 ```
 
 `full` is the default. `off` prevents the extension from injecting Ponytail
 instructions. Sending exactly `normal mode` or `stop ponytail` also turns
 injection off. The extension saves mode entries in the OMP session and
 restores the latest valid one on the next session start.
+
+`/ponytail update` asks for confirmation in UI mode, then runs
+`bun run sync:upstream` from loaded package directory. It needs GitHub network
+access and write access to that
+directory. On success, OMP reloads so refreshed skills are available immediately.
 
 The extension aliases six vendored skills:
 
@@ -90,15 +96,19 @@ variables take precedence when present:
 
 ## Refresh the upstream snapshot
 
-The only networked maintenance operation is:
+`/ponytail update` runs this package script from the loaded plugin:
 
 ```sh
 bun run sync:upstream
 ```
 
 It resolves upstream `main` once, then refreshes exactly six skill files,
-`LICENSE`, and `upstream-lock.json` from that one commit. Review the resulting
-diff and run tests before committing it:
+`LICENSE`, and `upstream-lock.json` from that one commit. A local plugin link
+updates tracked checkout files. A GitHub-installed plugin updates Bun/OMP-managed
+files that reinstalling or updating the plugin can replace.
+
+Run the script directly for durable maintainer work: review its diff, run tests,
+commit, and publish the synchronized snapshot:
 
 ```sh
 bun test ./test/*.test.ts

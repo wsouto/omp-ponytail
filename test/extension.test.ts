@@ -19,17 +19,24 @@ const originalEnv = { ...process.env };
 type EventHandler = (event?: unknown, context?: TestContext) => Promise<unknown> | unknown;
 type CommandHandler = (args: string, context: TestContext) => Promise<unknown> | unknown;
 type TestContext = {
+  hasUI?: boolean;
   isIdle?: () => boolean;
+  reload?: () => Promise<void>;
   sessionManager?: { getBranch?: () => unknown[] };
   ui?: {
+    confirm?: (title: string, message: string) => Promise<boolean>;
     notify?: (message: string, level: string) => void;
     setStatus?: (key: string, text: string) => void;
+    setWorkingMessage?: (message?: string) => void;
     theme?: { fg: (color: string, text: string) => string };
   };
 };
+type ExecResult = { code: number; killed: boolean; stderr: string };
+type Exec = (command: string, args: string[], options: { cwd: string }) => Promise<ExecResult>;
 type RegisteredCommand = { handler: CommandHandler };
 
 function extensionApi(api: {
+  exec: Exec;
   on: (name: string, handler: EventHandler) => void;
   registerCommand: (name: string, command: RegisteredCommand) => void;
   appendEntry: (customType: string, data: unknown) => void;
@@ -43,12 +50,13 @@ afterEach(() => {
   Object.assign(process.env, originalEnv);
 });
 
-function harness() {
+function harness({ exec = async () => ({ code: 0, killed: false, stderr: "" }) }: { exec?: Exec } = {}) {
   const events = new Map<string, EventHandler>();
   const commands = new Map<string, RegisteredCommand>();
   const entries: { customType: string; data: unknown }[] = [];
   const messages: { text: string; options?: unknown }[] = [];
   ponytailExtension(extensionApi({
+    exec,
     on: (name, handler) => events.set(name, handler),
     registerCommand: (name, command) => commands.set(name, command),
     appendEntry: (customType, data) => entries.push({ customType, data }),
@@ -119,6 +127,93 @@ describe("OMP Ponytail extension", () => {
     expect(messages).toEqual([{ text: "/skill:ponytail-review", options: undefined }, { text: "/skill:ponytail-help", options: { deliverAs: "followUp" } }]);
   });
 
+  test("updates skills through OMP and reloads after confirmation", async () => {
+    const calls: { command: string; args: string[]; options: { cwd: string } }[] = [];
+    const { commands, entries } = harness({ exec: async (command, args, options) => {
+      calls.push({ command, args, options });
+      return { code: 0, killed: false, stderr: "" };
+    } });
+    const notifications: { message: string; level: string }[] = [];
+    const working: (string | undefined)[] = [];
+    let reloads = 0;
+    const ctx = context({
+      hasUI: true,
+      reload: async () => { reloads += 1; },
+      ui: {
+        confirm: async (title, message) => {
+          expect([title, message]).toEqual(["Update Ponytail skills?", "Fetch the latest six skills and license from DietrichGebert/ponytail?"]);
+          return true;
+        },
+        notify: (message, level) => notifications.push({ message, level }),
+        setWorkingMessage: (message) => working.push(message),
+      },
+    });
+
+    await requiredCommand(commands, "ponytail").handler("update", ctx);
+    expect(calls).toEqual([{ command: "bun", args: ["run", "sync:upstream"], options: { cwd: join(import.meta.dir, "..") } }]);
+    expect(notifications).toEqual([
+      { message: "Updating Ponytail skills…", level: "info" },
+      { message: "Ponytail skills updated. Reloading OMP…", level: "info" },
+    ]);
+    expect(working).toEqual(["Updating Ponytail skills…", undefined]);
+    expect(reloads).toBe(1);
+    expect(entries).toEqual([]);
+  });
+
+  test("does not update after declined confirmation", async () => {
+    let calls = 0;
+    let reloads = 0;
+    const { commands } = harness({ exec: async () => {
+      calls += 1;
+      return { code: 0, killed: false, stderr: "" };
+    } });
+    await requiredCommand(commands, "ponytail").handler("update", context({
+      hasUI: true,
+      reload: async () => { reloads += 1; },
+      ui: { confirm: async () => false, notify() {} },
+    }));
+    expect([calls, reloads]).toEqual([0, 0]);
+  });
+
+  test("reports update failures without reloading", async () => {
+    for (const [failure, expected] of [
+      [async (): Promise<ExecResult> => ({ code: 0, killed: true, stderr: "" }), "Ponytail update was cancelled."],
+      [async (): Promise<ExecResult> => ({ code: 1, killed: false, stderr: "sync failed\n" }), "sync failed"],
+      [async (): Promise<ExecResult> => ({ code: 2, killed: false, stderr: "" }), "bun run sync:upstream exited with code 2"],
+      [async (): Promise<ExecResult> => { throw new Error("spawn failed"); }, "spawn failed"],
+    ] as const) {
+      const { commands, entries } = harness({ exec: failure });
+      const notifications: { message: string; level: string }[] = [];
+      let reloads = 0;
+      await requiredCommand(commands, "ponytail").handler("update", context({
+        reload: async () => { reloads += 1; },
+        ui: { notify: (message, level) => notifications.push({ message, level }) },
+      }));
+      expect(notifications.at(-1)).toEqual({ message: `Failed to update Ponytail skills: ${expected}`, level: "error" });
+      expect(reloads).toBe(0);
+      expect(entries).toEqual([]);
+    }
+  });
+
+  test("allows only one update at a time", async () => {
+    let calls = 0;
+    let finish: (result: ExecResult) => void = () => {};
+    const pending = new Promise<ExecResult>((resolve) => { finish = resolve; });
+    const { commands } = harness({ exec: async () => {
+      calls += 1;
+      return pending;
+    } });
+    const notifications: { message: string; level: string }[] = [];
+    const ctx = context({ ui: { notify: (message, level) => notifications.push({ message, level }) } });
+    const command = requiredCommand(commands, "ponytail");
+    const first = command.handler("update", ctx);
+    await command.handler("update", ctx);
+    finish({ code: 0, killed: false, stderr: "" });
+    await first;
+    expect(calls).toBe(1);
+    expect(notifications).toContainEqual({ message: "Ponytail update already in progress.", level: "warning" });
+  });
+
   test("deactivation only accepts standalone commands", async () => withTempConfig(async () => {
     const { events, commands } = harness();
     const ctx = context();
@@ -153,6 +248,8 @@ describe("helpers", () => {
   test("parses modes and resolves latest valid session value", () => {
     expect(parsePonytailCommand("", "off")).toEqual({ type: "set-mode", mode: "full" });
     expect(parsePonytailCommand("default review")).toEqual({ type: "invalid", reason: "invalid-default-mode" });
+    expect(parsePonytailCommand("update")).toEqual({ type: "update" });
+    expect(parsePonytailCommand("update now")).toEqual({ type: "invalid", reason: "invalid-mode", mode: "update" });
     expect(resolveSessionMode([{ type: "custom", customType: "ponytail-mode", data: { mode: "lite" } }], "full")).toBe("lite");
   });
 

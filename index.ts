@@ -10,11 +10,15 @@ const SKILL_PATH = join(import.meta.dir, "skills", "ponytail", "SKILL.md");
 const COMMANDS = ["ponytail-review", "ponytail-audit", "ponytail-debt", "ponytail-gain", "ponytail-help"];
 
 type Context = {
+  hasUI?: boolean;
   isIdle?: () => boolean;
+  reload?: () => Promise<void>;
   sessionManager?: { getBranch?: () => unknown };
   ui?: {
+    confirm?: (title: string, message: string) => Promise<boolean>;
     notify?: (message: string, level: "info" | "warning" | "error") => void;
     setStatus?: (key: string, text: string) => void;
+    setWorkingMessage?: (message?: string) => void;
     theme?: { fg?: (color: string, text: string) => string };
   };
 };
@@ -104,6 +108,7 @@ export function parsePonytailCommand(text: unknown, defaultMode = DEFAULT_MODE) 
 
   if (!primary) return { type: "set-mode", mode: fallback === "off" ? DEFAULT_MODE : fallback };
   if (primary === "status") return { type: "status" };
+  if (primary === "update") return secondary ? { type: "invalid", reason: "invalid-mode", mode: primary } : { type: "update" };
   if (primary === "default") {
     const mode = normalizeMode(secondary);
     return mode ? { type: "set-default", mode } : { type: "invalid", reason: "invalid-default-mode" };
@@ -161,6 +166,7 @@ export default function ponytailExtension(pi: ExtensionAPI) {
   let hideStatus = readHideStatus();
   let isActive = false;
   let lastContext: Context | undefined;
+  let updateInProgress = false;
 
   function syncStatus(context?: Context) {
     if (context) lastContext = context;
@@ -198,8 +204,34 @@ export default function ponytailExtension(pi: ExtensionAPI) {
     pi.sendUserMessage(message);
   }
 
+  async function updatePonytail(context: Context) {
+    if (updateInProgress) {
+      context?.ui?.notify?.("Ponytail update already in progress.", "warning");
+      return;
+    }
+
+    updateInProgress = true;
+    try {
+      if (context?.hasUI === true && context.ui?.confirm && !(await context.ui.confirm("Update Ponytail skills?", "Fetch the latest six skills and license from DietrichGebert/ponytail?"))) return;
+
+      context?.ui?.notify?.("Updating Ponytail skills…", "info");
+      context?.ui?.setWorkingMessage?.("Updating Ponytail skills…");
+      const result = await pi.exec("bun", ["run", "sync:upstream"], { cwd: import.meta.dir });
+      if (result.killed) throw new Error("Ponytail update was cancelled.");
+      if (result.code !== 0) throw new Error(result.stderr.trim() || `bun run sync:upstream exited with code ${result.code}`);
+
+      context?.ui?.notify?.("Ponytail skills updated. Reloading OMP…", "info");
+      await context?.reload?.();
+    } catch (error: unknown) {
+      context?.ui?.notify?.(`Failed to update Ponytail skills: ${error instanceof Error ? error.message : String(error)}`, "error");
+    } finally {
+      context?.ui?.setWorkingMessage?.();
+      updateInProgress = false;
+    }
+  }
+
   pi.registerCommand("ponytail", {
-    description: `Set mode: ${RUNTIME_MODES.join("|")}. Commands: status, default <mode>`,
+    description: `Set mode: ${RUNTIME_MODES.join("|")}. Commands: status, update, default <mode>`,
     handler: async (args: string, context: Context) => {
       const parsed = parsePonytailCommand(args, configuredDefaultMode);
       if (parsed.type === "status") context?.ui?.notify?.(`Ponytail: current ${currentMode} • default ${configuredDefaultMode}`, "info");
@@ -213,7 +245,8 @@ export default function ponytailExtension(pi: ExtensionAPI) {
         } catch (error: unknown) {
           context?.ui?.notify?.(`Failed to save default mode: ${error instanceof Error ? error.message : String(error)}`, "error");
         }
-      } else if (parsed.type === "set-mode") setMode(parsed.mode, context);
+      } else if (parsed.type === "update") await updatePonytail(context);
+      else if (parsed.type === "set-mode") setMode(parsed.mode, context);
       else context?.ui?.notify?.("Unknown or unsupported /ponytail mode.", "warning");
     },
   });
