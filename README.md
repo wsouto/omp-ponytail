@@ -1,4 +1,4 @@
-# OMP Ponytail
+# omp-ponytail
 
 A standalone [Oh My Pi](https://github.com/coder/oh-my-pi) (OMP) extension
 port of [Ponytail](https://github.com/DietrichGebert/ponytail). It provides
@@ -8,8 +8,6 @@ they do not contact GitHub.
 
 ## Prerequisites
 
-- [Oh My Pi](https://github.com/coder/oh-my-pi) installed and available as
-  `omp`.
 - [Bun](https://bun.sh/) available for installing Git dependencies and running
   tests or updates.
 
