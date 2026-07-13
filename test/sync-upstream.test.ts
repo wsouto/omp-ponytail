@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, readFile, readdir, rename as fsRename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -25,6 +25,24 @@ async function temporaryRepository() {
 
 async function fixtureFiles() {
   return Object.fromEntries(await Promise.all(expectedPaths.map(async (path) => [path, await readFile(join(repositoryRoot, path), "utf8")] as const)));
+}
+
+const trackedPaths = [...expectedPaths, "upstream-lock.json"];
+
+async function snapshotFiles(root: string) {
+  return Object.fromEntries(await Promise.all(trackedPaths.map(async (path) => [path, Array.from(await readFile(join(root, path)))] as const)));
+}
+
+async function expectSnapshot(root: string, before: Record<string, number[]>) {
+  expect(await snapshotFiles(root)).toEqual(before);
+}
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
 }
 
 function fetchFrom(files: Record<string, string>) {
@@ -75,6 +93,82 @@ describe("syncUpstream", () => {
       const before = await readFile(join(root, "upstream-lock.json"), "utf8");
       await expect(syncUpstream({ root, fetch: async () => ({ ok: false, status: 503, text: async () => "offline" }), log() {} })).rejects.toThrow("HTTP 503");
       expect(await readFile(join(root, "upstream-lock.json"), "utf8")).toBe(before);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("rolls back a deterministic mid-publication rename failure and cleans up", async () => {
+    const root = await temporaryRepository();
+    try {
+      const files = await fixtureFiles();
+      const before = await snapshotFiles(root);
+      let publicationRenames = 0;
+      await expect(syncUpstream({
+        root,
+        fetch: fetchFrom(files),
+        log() {},
+        rename: async (from, to) => {
+          publicationRenames += 1;
+          if (publicationRenames === 3) throw new Error("deterministic publication rename failure");
+          return fsRename(from, to);
+        },
+      })).rejects.toThrow("deterministic publication rename failure");
+      expect(publicationRenames).toBeGreaterThanOrEqual(3);
+      await expectSnapshot(root, before);
+      expect(await readdir(root)).not.toContain(".upstream-sync.lock");
+      expect((await readdir(root)).filter((name) => name.startsWith(".upstream-sync-"))).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a concurrent same-root publisher while the first completes", async () => {
+    const root = await temporaryRepository();
+    try {
+      const files = await fixtureFiles();
+      const publicationStarted = deferred();
+      const releasePublication = deferred();
+      let firstRename = true;
+      const firstSync = syncUpstream({
+        root,
+        fetch: fetchFrom(files),
+        log() {},
+        rename: async (from, to) => {
+          if (firstRename) {
+            firstRename = false;
+            publicationStarted.resolve();
+            await releasePublication.promise;
+          }
+          return fsRename(from, to);
+        },
+      });
+      await publicationStarted.promise;
+      await expect(syncUpstream({ root, fetch: fetchFrom(files), log() {} })).rejects.toThrow("already in progress");
+      releasePublication.resolve();
+      await firstSync;
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("permits a successful retry after rollback", async () => {
+    const root = await temporaryRepository();
+    try {
+      const files = await fixtureFiles();
+      let publicationRenames = 0;
+      await expect(syncUpstream({
+        root,
+        fetch: fetchFrom(files),
+        log() {},
+        rename: async (from, to) => {
+          publicationRenames += 1;
+          if (publicationRenames === 3) throw new Error("deterministic publication rename failure");
+          return fsRename(from, to);
+        },
+      })).rejects.toThrow("deterministic publication rename failure");
+      await expect(syncUpstream({ root, fetch: fetchFrom(files), log() {} })).resolves.toEqual(expect.objectContaining({ commit }));
+      for (const path of expectedPaths) expect(await readFile(join(root, path), "utf8")).toBe(files[path]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

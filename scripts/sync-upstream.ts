@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, join, relative, resolve } from "node:path";
+import { mkdir, mkdtemp, open, readFile, rename, rm, writeFile, type FileHandle } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 
 export const UPSTREAM_REPOSITORY = "DietrichGebert/ponytail";
 export const UPSTREAM_REF = "main";
@@ -12,7 +12,8 @@ const COMMIT_PATTERN = /^[0-9a-f]{40}$/i;
 type FetchResponse = { ok: boolean; status: number; text: () => Promise<string> };
 type Fetcher = (url: string) => Promise<FetchResponse>;
 type LockFile = { repository: string; ref: string; commit: string; files: Record<string, string> };
-type SyncOptions = { root?: string; fetch?: Fetcher; log?: (message: string) => void };
+type Rename = (oldPath: string, newPath: string) => Promise<void>;
+type SyncOptions = { root?: string; fetch?: Fetcher; log?: (message: string) => void; rename?: Rename };
 
 function digest(content: string) {
   return `sha256:${createHash("sha256").update(content).digest("hex")}`;
@@ -39,20 +40,7 @@ async function responseText(fetcher: Fetcher, url: string) {
   return response.text();
 }
 
-function temporaryPath(path: string) {
-  return `${path}.tmp`;
-}
 
-async function writeAtomically(path: string, content: string) {
-  await mkdir(dirname(path), { recursive: true });
-  const temporary = temporaryPath(path);
-  await writeFile(temporary, content, "utf8");
-  await rename(temporary, path);
-}
-
-async function cleanupTemporary(paths: string[]) {
-  await Promise.all(paths.map((path) => rm(temporaryPath(path), { force: true })));
-}
 
 export async function syncUpstream(options: SyncOptions = {}) {
   const root = resolve(options.root ?? import.meta.dir + "/..");
@@ -81,21 +69,114 @@ export async function syncUpstream(options: SyncOptions = {}) {
     commit,
     files: Object.fromEntries(paths.map((path) => [path, digest(files[path])])),
   };
-  const lockPath = join(root, "upstream-lock.json");
-  const targetPaths = paths.map((path) => join(root, path));
+  const lockDocument = `${JSON.stringify(lock, null, 2)}\n`;
+  const publisherLockPath = join(root, ".upstream-sync.lock");
+  const publisherRename = options.rename ?? rename;
+  let publisherLock: FileHandle | undefined;
+  let operationError: unknown;
 
   try {
-    for (const path of targetPaths) await mkdir(dirname(path), { recursive: true });
-    await Promise.all([...targetPaths.map((path, index) => writeFile(temporaryPath(path), files[paths[index]], "utf8")), writeFile(temporaryPath(lockPath), `${JSON.stringify(lock, null, 2)}\n`, "utf8")]);
-    for (const path of targetPaths) await rename(temporaryPath(path), path);
-    await rename(temporaryPath(lockPath), lockPath);
-  } catch (error) {
-    await cleanupTemporary([...targetPaths, lockPath]);
-    throw error;
-  }
+    await mkdir(root, { recursive: true });
+    try {
+      publisherLock = await open(publisherLockPath, "wx");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+        throw new Error(`Another upstream sync is already in progress for ${root}`, { cause: error });
+      }
+      throw error;
+    }
 
-  log(`Synced ${paths.length - 1} skills and LICENSE from ${UPSTREAM_REPOSITORY}@${commit}.`);
-  return lock;
+    const transaction = await mkdtemp(join(root, ".upstream-sync-"));
+    const stagedRoot = join(transaction, "staged");
+    const backupRoot = join(transaction, "backup");
+    const transactionPaths = [...paths, "upstream-lock.json"];
+    const transactionEntries = transactionPaths.map((path) => ({
+      path,
+      target: join(root, path),
+      staged: join(stagedRoot, path),
+      backup: join(backupRoot, path),
+    }));
+    const backedUp: typeof transactionEntries = [];
+    const installed: typeof transactionEntries = [];
+    let transactionError: unknown;
+
+    try {
+      await Promise.all(transactionEntries.map(async ({ target, staged, backup }) => {
+        await Promise.all([
+          mkdir(dirname(target), { recursive: true }),
+          mkdir(dirname(staged), { recursive: true }),
+          mkdir(dirname(backup), { recursive: true }),
+        ]);
+      }));
+      await Promise.all(transactionEntries.map(({ path, staged }) =>
+        writeFile(staged, path === "upstream-lock.json" ? lockDocument : files[path], "utf8")));
+
+      try {
+        for (const entry of transactionEntries) {
+          await publisherRename(entry.target, entry.backup);
+          backedUp.push(entry);
+          await publisherRename(entry.staged, entry.target);
+          installed.push(entry);
+        }
+      } catch (error) {
+        const rollbackErrors: Error[] = [];
+        for (let index = installed.length - 1; index >= 0; index -= 1) {
+          const entry = installed[index];
+          try {
+            await rm(entry.target, { force: true });
+          } catch (rollbackError) {
+            rollbackErrors.push(new Error(`remove installed ${entry.path}: ${String(rollbackError)}`, { cause: rollbackError }));
+          }
+        }
+        for (let index = backedUp.length - 1; index >= 0; index -= 1) {
+          const entry = backedUp[index];
+          try {
+            await publisherRename(entry.backup, entry.target);
+          } catch (rollbackError) {
+            rollbackErrors.push(new Error(`restore backup ${entry.path}: ${String(rollbackError)}`, { cause: rollbackError }));
+          }
+        }
+        if (rollbackErrors.length > 0) {
+          throw new AggregateError(rollbackErrors, "Upstream sync publication failed and rollback encountered errors", { cause: error });
+        }
+        throw error;
+      }
+    } catch (error) {
+      transactionError = error;
+    } finally {
+      try {
+        await rm(transaction, { recursive: true, force: true });
+      } catch (cleanupError) {
+        if (!transactionError) transactionError = cleanupError;
+      }
+    }
+    if (transactionError) throw transactionError;
+
+    log(`Synced ${paths.length - 1} skills and LICENSE from ${UPSTREAM_REPOSITORY}@${commit}.`);
+    return lock;
+  } catch (error) {
+    operationError = error;
+    throw error;
+  } finally {
+    const cleanupErrors: unknown[] = [];
+    if (publisherLock) {
+      try {
+        await publisherLock.close();
+      } catch (cleanupError) {
+        cleanupErrors.push(cleanupError);
+      }
+    }
+    if (publisherLock) {
+      try {
+        await rm(publisherLockPath, { force: true });
+      } catch (cleanupError) {
+        cleanupErrors.push(cleanupError);
+      }
+    }
+    if (cleanupErrors.length > 0 && !operationError) {
+      throw new AggregateError(cleanupErrors, "Upstream sync publisher lock cleanup failed");
+    }
+  }
 }
 
 export async function readLock(root = resolve(import.meta.dir + "/..")) {
