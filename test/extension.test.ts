@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
@@ -253,11 +253,51 @@ describe("helpers", () => {
     expect(resolveSessionMode([{ type: "custom", customType: "ponytail-mode", data: { mode: "lite" } }], "full")).toBe("lite");
   });
 
+  test("refuses to overwrite malformed config through the helper", () => withTempConfig(() => {
+    const path = join(process.env.XDG_CONFIG_HOME!, "ponytail", "config.json");
+    const invalid = '{"defaultMode":';
+    mkdirSync(join(process.env.XDG_CONFIG_HOME!, "ponytail"), { recursive: true });
+    writeFileSync(path, invalid, "utf8");
+
+    expect(() => writeDefaultMode("ultra")).toThrow();
+    expect(readFileSync(path, "utf8")).toBe(invalid);
+  }));
+
+  test("refuses non-object config roots through the helper", () => withTempConfig(() => {
+    const path = join(process.env.XDG_CONFIG_HOME!, "ponytail", "config.json");
+    mkdirSync(join(process.env.XDG_CONFIG_HOME!, "ponytail"), { recursive: true });
+
+    for (const invalid of ["[]", "null", "42"]) {
+      writeFileSync(path, invalid, "utf8");
+      expect(() => writeDefaultMode("ultra")).toThrow(`Ponytail config ${path}: root must be a JSON object.`);
+      expect(readFileSync(path, "utf8")).toBe(invalid);
+    }
+  }));
+
+  test("reports malformed config save failures through the command", async () => withTempConfig(async () => {
+    const path = join(process.env.XDG_CONFIG_HOME!, "ponytail", "config.json");
+    const invalid = '{"defaultMode":';
+    mkdirSync(join(process.env.XDG_CONFIG_HOME!, "ponytail"), { recursive: true });
+    writeFileSync(path, invalid, "utf8");
+    const notifications: { message: string; level: string }[] = [];
+    const { commands } = harness();
+
+    await requiredCommand(commands, "ponytail").handler("default ultra", context({ ui: { notify: (message, level) => notifications.push({ message, level }) } }));
+
+    expect(notifications.at(-1)).toEqual({ message: expect.stringMatching(/^Failed to save default mode:/), level: "error" });
+    expect(readFileSync(path, "utf8")).toBe(invalid);
+  }));
+
   test("reads config and keeps rule bullets while filtering examples", () => withTempConfig(() => {
+    const path = join(process.env.XDG_CONFIG_HOME!, "ponytail", "config.json");
     expect(readDefaultMode()).toBe("full");
     expect(writeDefaultMode("ultra")).toBe("ultra");
     expect(readDefaultMode()).toBe("ultra");
     expect(readQuietStartup()).toBeFalse();
+    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ defaultMode: "ultra" });
+    writeFileSync(path, JSON.stringify({ defaultMode: "lite", quietStartup: true, unrelated: { value: 1 } }), "utf8");
+    expect(writeDefaultMode("full")).toBe("full");
+    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ defaultMode: "full", quietStartup: true, unrelated: { value: 1 } });
     process.env.PONYTAIL_HIDE_STATUS = "0";
     expect(readHideStatus()).toBeFalse();
     const filtered = filterSkillBodyForMode('- Full: rule\n- lite: "example"\n- ultra: "example"', "ultra");
