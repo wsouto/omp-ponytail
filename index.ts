@@ -46,12 +46,27 @@ function configPath() {
   return join(base, "config.json");
 }
 
+function readConfigFile(path: string): Record<string, unknown> | undefined {
+  const config = JSON.parse(readFileSync(path, "utf8").replace(/^\uFEFF/, ""));
+  return config && typeof config === "object" && !Array.isArray(config) ? config : undefined;
+}
+
 function readConfig(): Record<string, unknown> {
   try {
-    const config = JSON.parse(readFileSync(configPath(), "utf8").replace(/^\uFEFF/, ""));
-    return config && typeof config === "object" && !Array.isArray(config) ? config : {};
+    return readConfigFile(configPath()) || {};
   } catch {
     return {};
+  }
+}
+
+function readConfigForWrite(path: string): Record<string, unknown> {
+  try {
+    const config = readConfigFile(path);
+    if (!config) throw new Error(`Ponytail config ${path}: root must be a JSON object.`);
+    return config;
+  } catch (error: unknown) {
+    if ((error as { code?: unknown } | undefined)?.code === "ENOENT") return {};
+    throw error;
   }
 }
 
@@ -76,10 +91,11 @@ export function readHideStatus() {
 export function writeDefaultMode(mode: unknown) {
   const normalized = normalizeMode(mode);
   if (!normalized) return undefined;
-
   const path = configPath();
+
+  const config = readConfigForWrite(path);
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify({ ...readConfig(), defaultMode: normalized }, null, 2), "utf8");
+  writeFileSync(path, JSON.stringify({ ...config, defaultMode: normalized }, null, 2), "utf8");
   return normalized;
 }
 
