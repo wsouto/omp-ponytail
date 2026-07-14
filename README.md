@@ -27,11 +27,19 @@ discovers the extension and root `skills/` directory:
 omp plugin list
 ```
 
-For local development from `/home/wsouto/Projects`, use OMP's local plugin
-linker instead:
+## Local Development
+
+For local development, clone the repository:
 
 ```sh
-omp install ./omp-ponytail
+git clone https://github.com/wsouto/omp-ponytail.git
+```
+
+Then use OMP's local plugin linker:
+
+```sh
+cd omp-ponytail
+omp install .
 omp plugin list
 ```
 
