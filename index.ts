@@ -1,27 +1,13 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 
 export const DEFAULT_MODE = "full";
 export const RUNTIME_MODES = ["off", "lite", "full", "ultra"];
 const PERSISTED_MODES = [...RUNTIME_MODES, "review"];
 const SKILL_PATH = join(import.meta.dir, "skills", "ponytail", "SKILL.md");
 const COMMANDS = ["ponytail-review", "ponytail-audit", "ponytail-debt", "ponytail-gain", "ponytail-help"];
-
-type Context = {
-  hasUI?: boolean;
-  isIdle?: () => boolean;
-  reload?: () => Promise<void>;
-  sessionManager?: { getBranch?: () => unknown };
-  ui?: {
-    confirm?: (title: string, message: string) => Promise<boolean>;
-    notify?: (message: string, level: "info" | "warning" | "error") => void;
-    setStatus?: (key: string, text: string) => void;
-    setWorkingMessage?: (message?: string) => void;
-    theme?: { fg?: (color: string, text: string) => string };
-  };
-};
 
 function normalize(mode: unknown, modes: string[]) {
   if (typeof mode !== "string") return undefined;
@@ -181,10 +167,10 @@ export default function ponytailExtension(pi: ExtensionAPI) {
   let configuredDefaultMode = readDefaultMode();
   let hideStatus = readHideStatus();
   let isActive = false;
-  let lastContext: Context | undefined;
+  let lastContext: ExtensionContext | undefined;
   let updateInProgress = false;
 
-  function syncStatus(context?: Context) {
+  function syncStatus(context?: ExtensionContext) {
     if (context) lastContext = context;
     const ctx = context || lastContext;
     if (hideStatus || !ctx?.ui?.setStatus) return;
@@ -201,7 +187,7 @@ export default function ponytailExtension(pi: ExtensionAPI) {
     ctx.ui.setStatus("ponytail", `${indicator} ${theme.fg("muted", "ponytail: ")}${theme.fg("text", currentMode.toUpperCase())}`);
   }
 
-  function setMode(mode: unknown, context?: Context) {
+  function setMode(mode: unknown, context?: ExtensionContext) {
     const normalized = normalizePersistedMode(mode);
     if (!normalized) return;
     currentMode = normalized;
@@ -210,7 +196,7 @@ export default function ponytailExtension(pi: ExtensionAPI) {
     context?.ui?.notify?.(`Ponytail mode set to ${normalized}.`, "info");
   }
 
-  function sendAlias(skill: string, context: Context) {
+  function sendAlias(skill: string, context: ExtensionContext) {
     const message = `/skill:${skill}`;
     if (context?.isIdle?.() === false) {
       pi.sendUserMessage(message, { deliverAs: "followUp" });
@@ -220,7 +206,7 @@ export default function ponytailExtension(pi: ExtensionAPI) {
     pi.sendUserMessage(message);
   }
 
-  async function updatePonytail(context: Context) {
+  async function updatePonytail(context: ExtensionCommandContext) {
     if (updateInProgress) {
       context?.ui?.notify?.("Ponytail update already in progress.", "warning");
       return;
@@ -248,7 +234,7 @@ export default function ponytailExtension(pi: ExtensionAPI) {
 
   pi.registerCommand("ponytail", {
     description: `Set mode: ${RUNTIME_MODES.join("|")}. Commands: status, update, default <mode>`,
-    handler: async (args: string, context: Context) => {
+    handler: async (args: string, context: ExtensionCommandContext) => {
       const parsed = parsePonytailCommand(args, configuredDefaultMode);
       if (parsed.type === "status") context?.ui?.notify?.(`Ponytail: current ${currentMode} • default ${configuredDefaultMode}`, "info");
       else if (parsed.type === "set-default") {
@@ -267,23 +253,22 @@ export default function ponytailExtension(pi: ExtensionAPI) {
     },
   });
 
-  for (const command of COMMANDS) pi.registerCommand(command, { description: `Run /skill:${command}`, handler: async (_args: string, context: Context) => sendAlias(command, context) });
+  for (const command of COMMANDS) pi.registerCommand(command, { description: `Run /skill:${command}`, handler: async (_args: string, context: ExtensionCommandContext) => sendAlias(command, context) });
 
   pi.on("input", async (event: { source?: string; text?: string }) => {
     if (event?.source !== "extension" && currentMode !== "off" && isDeactivationCommand(event?.text)) setMode("off");
   });
-  pi.on("session_start", async (_event: unknown, context: Context) => {
+  pi.on("session_start", async (_event, context: ExtensionContext) => {
     configuredDefaultMode = readDefaultMode();
     hideStatus = readHideStatus();
     currentMode = resolveSessionMode(context?.sessionManager?.getBranch?.(), configuredDefaultMode);
     syncStatus(context);
     if (!readQuietStartup()) context?.ui?.notify?.(`Ponytail loaded: ${currentMode}`, "info");
   });
-  pi.on("agent_start", async (_event: unknown, context: Context) => { isActive = true; syncStatus(context); });
-  pi.on("agent_end", async (_event: unknown, context: Context) => { isActive = false; syncStatus(context); });
-  pi.on("before_agent_start", async (event: { systemPrompt?: string }) => {
+  pi.on("agent_start", async (_event, context: ExtensionContext) => { isActive = true; syncStatus(context); });
+  pi.on("agent_end", async (_event, context: ExtensionContext) => { isActive = false; syncStatus(context); });
+  pi.on("before_agent_start", async (event) => {
     if (currentMode === "off") return;
-    const base = event?.systemPrompt ? `${event.systemPrompt}\n\n` : "";
-    return { systemPrompt: `${base}${getPonytailInstructions(currentMode)}` };
+    return { systemPrompt: [...event.systemPrompt, getPonytailInstructions(currentMode)] };
   });
 }

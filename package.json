@@ -1,8 +1,16 @@
 {
   "name": "omp-ponytail",
   "version": "1.0.0",
-  "private": true,
-  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wsouto/omp-ponytail.git"
+  },
+  "peerDependencies": {
+    "@oh-my-pi/pi-coding-agent": "*"
+  },
+  "bugs": {
+    "url": "https://github.com/wsouto/omp-ponytail/issues"
+  },
   "files": [
     "index.ts",
     "skills/",
@@ -12,24 +20,19 @@
     "NOTICE",
     "LICENSE"
   ],
-  "scripts": {
-    "test": "bun test ./test/*.test.ts",
-    "sync:upstream": "bun run ./scripts/sync-upstream.ts"
-  },
-  "peerDependencies": {
-    "@oh-my-pi/pi-coding-agent": "*"
-  },
+  "homepage": "https://github.com/wsouto/omp-ponytail#readme",
   "omp": {
     "extensions": [
       "./index.ts"
     ]
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/wsouto/omp-ponytail.git"
+  "private": true,
+  "scripts": {
+    "test": "bun test ./test/*.test.ts",
+    "sync:upstream": "bun run ./scripts/sync-upstream.ts"
   },
-  "homepage": "https://github.com/wsouto/omp-ponytail#readme",
-  "bugs": {
-    "url": "https://github.com/wsouto/omp-ponytail/issues"
+  "type": "module",
+  "devDependencies": {
+    "bun-types": "^1.3.14"
   }
 }

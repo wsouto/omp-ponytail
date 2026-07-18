@@ -101,9 +101,10 @@ describe("OMP Ponytail extension", () => {
     await requiredEvent(events, "session_start")({}, ctx);
     await requiredCommand(commands, "ponytail").handler("ultra", ctx);
     expect(entries.at(-1)).toEqual({ customType: "ponytail-mode", data: { mode: "ultra" } });
-    const result = await requiredEvent(events, "before_agent_start")({ systemPrompt: "BASE" }, ctx) as { systemPrompt: string };
-    expect(result.systemPrompt).toStartWith("BASE\n\nPONYTAIL MODE ACTIVE — level: ultra");
-    expect(result.systemPrompt).not.toContain('full: "`@lru_cache');
+    const result = await requiredEvent(events, "before_agent_start")({ systemPrompt: ["BASE"] }, ctx) as { systemPrompt: string[] };
+    expect(result.systemPrompt[0]).toBe("BASE");
+    expect(result.systemPrompt[1]).toStartWith("PONYTAIL MODE ACTIVE — level: ultra");
+    expect(result.systemPrompt[1]).not.toContain('full: "`@lru_cache');
   }));
 
   test("reads standalone vendored instructions rather than fallback text", () => {
@@ -116,8 +117,8 @@ describe("OMP Ponytail extension", () => {
     const { events } = harness();
     const ctx = context({ sessionManager: { getBranch: () => [{ type: "custom", customType: "ponytail-mode", data: { mode: "lite" } }, { type: "custom", customType: "ponytail-mode", data: { mode: "review" } }] } });
     await requiredEvent(events, "session_start")({}, ctx);
-    const result = await requiredEvent(events, "before_agent_start")(undefined, ctx);
-    expect(result).toEqual({ systemPrompt: "PONYTAIL MODE ACTIVE — level: review. Behavior defined by /ponytail-review skill." });
+    const result = await requiredEvent(events, "before_agent_start")({ systemPrompt: [] }, ctx);
+    expect(result).toEqual({ systemPrompt: ["PONYTAIL MODE ACTIVE — level: review. Behavior defined by /ponytail-review skill."] });
   }));
 
   test("aliases skills and queues them while agent runs", async () => {
@@ -220,7 +221,7 @@ describe("OMP Ponytail extension", () => {
     await requiredEvent(events, "session_start")({}, ctx);
     await requiredCommand(commands, "ponytail").handler("ultra", ctx);
     await requiredEvent(events, "input")({ text: "add a normal mode toggle", source: "interactive" }, ctx);
-    expect((await requiredEvent(events, "before_agent_start")({}, ctx) as { systemPrompt: string }).systemPrompt).toContain("PONYTAIL MODE ACTIVE");
+    expect((await requiredEvent(events, "before_agent_start")({ systemPrompt: [] }, ctx) as { systemPrompt: string[] }).systemPrompt.at(-1)).toContain("PONYTAIL MODE ACTIVE");
     await requiredEvent(events, "input")({ text: "normal mode", source: "interactive" }, ctx);
     expect(await requiredEvent(events, "before_agent_start")({}, ctx)).toBeUndefined();
   }));
