@@ -132,6 +132,10 @@ OMP extension behavior follows the
 [extension authoring documentation](https://github.com/coder/oh-my-pi/blob/main/packages/coding-agent/docs/extensions.md)
 and
 [extension loading documentation](https://github.com/coder/oh-my-pi/blob/main/packages/coding-agent/docs/extension-loading.md).
+
+OMP is the sole supported runtime and package target. This extension uses OMP's
+documented extension API and does not include Pi compatibility code.
+
 Run the focused test suite with:
 
 ```sh

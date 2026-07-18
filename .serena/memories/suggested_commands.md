@@ -1,0 +1,5 @@
+- Full regression: `rtk bun test ./test/*.test.ts`
+- Extension-focused regression: `rtk bun test ./test/extension.test.ts`
+- Upstream vendor refresh: `rtk bun run sync:upstream` or `rtk bun run ./scripts/sync-upstream.ts`
+- Local OMP use: `omp install ./omp-ponytail`; inspect `omp plugin list`.
+- Prefix shell commands with `rtk` per workspace convention.

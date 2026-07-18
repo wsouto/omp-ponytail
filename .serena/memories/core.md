@@ -1,0 +1,4 @@
+- OMP-first private TypeScript extension; `index.ts` is sole runtime source and manifest entry via `omp.extensions`.
+- Runtime owns closure-scoped mode state, commands, aliases, persistence, UI status, lifecycle hooks, and prompt injection.
+- Vendored `skills/**`, `LICENSE`, and `upstream-lock.json` change only through upstream sync; transaction guarantees in `scripts/sync-upstream.ts` are invariants.
+- Read `mem:tech_stack` for runtime/test commands; read `mem:conventions` before code changes; read `mem:task_completion` before delivery.

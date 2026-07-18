@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve as resolvePath } from "node:path";
+import { pathToFileURL } from "node:url";
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 
 import ponytailExtension, {
@@ -50,19 +51,23 @@ afterEach(() => {
   Object.assign(process.env, originalEnv);
 });
 
-function harness({ exec = async () => ({ code: 0, killed: false, stderr: "" }) }: { exec?: Exec } = {}) {
+function harness(
+  { exec = async () => ({ code: 0, killed: false, stderr: "" }), factory = ponytailExtension }: { exec?: Exec; factory?: typeof ponytailExtension } = {},
+) {
   const events = new Map<string, EventHandler>();
   const commands = new Map<string, RegisteredCommand>();
   const entries: { customType: string; data: unknown }[] = [];
   const messages: { text: string; options?: unknown }[] = [];
-  ponytailExtension(extensionApi({
+  const registeredEvents: string[] = [];
+  const registeredCommands: string[] = [];
+  factory(extensionApi({
     exec,
-    on: (name, handler) => events.set(name, handler),
-    registerCommand: (name, command) => commands.set(name, command),
+    on: (name, handler) => { registeredEvents.push(name); events.set(name, handler); },
+    registerCommand: (name, command) => { registeredCommands.push(name); commands.set(name, command); },
     appendEntry: (customType, data) => entries.push({ customType, data }),
     sendUserMessage: (text, options) => messages.push({ text, options }),
   }));
-  return { events, commands, entries, messages };
+  return { events, commands, entries, messages, registeredEvents, registeredCommands };
 }
 
 function context(overrides: TestContext = {}): TestContext {
@@ -91,9 +96,38 @@ function withTempConfig(run: () => Promise<void> | void) {
 }
 
 describe("OMP Ponytail extension", () => {
-  test("registers all Ponytail commands", () => {
-    expect([...harness().commands.keys()].sort()).toEqual(["ponytail", "ponytail-audit", "ponytail-debt", "ponytail-gain", "ponytail-help", "ponytail-review"]);
+  test("registers each command and lifecycle hook once", () => {
+    const { commands, registeredCommands, registeredEvents } = harness();
+    const names = ["ponytail", "ponytail-audit", "ponytail-debt", "ponytail-gain", "ponytail-help", "ponytail-review"];
+    expect([...commands.keys()].sort()).toEqual(names);
+    expect(registeredCommands.sort()).toEqual(names);
+    expect(registeredEvents.sort()).toEqual(["agent_end", "agent_start", "before_agent_start", "input", "session_start"]);
   });
+
+  test("loads the manifest entry and applies full or off mode", async () => withTempConfig(async () => {
+    const manifest = JSON.parse(readFileSync(resolvePath(import.meta.dir, "..", "package.json"), "utf8")) as { omp: { extensions: [string] } };
+    expect(manifest.omp.extensions).toEqual(["./index.ts"]);
+    // Runtime manifest entry must be selected dynamically to test package loading.
+    const module = await import(pathToFileURL(resolvePath(import.meta.dir, "..", manifest.omp.extensions[0])).href);
+    const { commands, events } = harness({ factory: module.default });
+    const ctx = context();
+
+    await requiredCommand(commands, "ponytail").handler("full", ctx);
+    expect(await requiredEvent(events, "before_agent_start")({ type: "before_agent_start", prompt: "", systemPrompt: ["BASE"] }, ctx)).toEqual({
+      systemPrompt: [expect.any(String), expect.stringContaining("PONYTAIL MODE ACTIVE — level: full")],
+    });
+    await requiredCommand(commands, "ponytail").handler("off", ctx);
+    expect(await requiredEvent(events, "before_agent_start")({ type: "before_agent_start", prompt: "", systemPrompt: ["BASE"] }, ctx)).toBeUndefined();
+  }));
+
+  test("injects filtered lite instructions", async () => withTempConfig(async () => {
+    const { commands, events } = harness();
+    const ctx = context();
+    await requiredCommand(commands, "ponytail").handler("lite", ctx);
+    const result = await requiredEvent(events, "before_agent_start")({ type: "before_agent_start", prompt: "", systemPrompt: [] }, ctx) as { systemPrompt: string[] };
+    expect(result.systemPrompt).toEqual([expect.stringContaining("PONYTAIL MODE ACTIVE — level: lite")]);
+    expect(result.systemPrompt[0]).not.toContain('full: "`@lru_cache');
+  }));
 
   test("persists mode and injects filtered rules", async () => withTempConfig(async () => {
     const { events, commands, entries } = harness();
