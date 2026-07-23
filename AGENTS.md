@@ -1,122 +1,73 @@
-# Repository Guidelines
+# omp-ponytail
 
-## Project Overview
+OMP (Oh My Pi) extension only — not OpenCode/Pi. Ports
+[Ponytail](https://github.com/DietrichGebert/ponytail) modes + six skills for
+OMP.
 
-`omp-ponytail` is a private TypeScript Oh My Pi (OMP) extension. It supplies
-Ponytail operating modes and skill aliases, persists the selected mode, injects
-mode-specific instructions into agent prompts, and can refresh vendored skills
-from the upstream Ponytail repository.
+## Layout
 
-## Architecture & Data Flow
+| Path | Role |
+| ---- | ---- |
+| `index.ts` | Extension entry (`package.json` → `omp.extensions`) |
+| `skills/*/SKILL.md` | Vendored upstream skills (do not hand-edit) |
+| `scripts/sync-upstream.ts` | Pull skills + LICENSE from upstream `main` |
+| `upstream-lock.json` | Commit SHA + sha256 of every imported file |
+| `test/*.test.ts` | Bun tests |
 
-- `index.ts` is the only application source and the OMP extension entry point
-  (`package.json` → `omp.extensions: ["./index.ts"]`). There is no `src/`
-  directory.
-- `ponytailExtension(pi)` owns closure-scoped runtime state and registers
-  `/ponytail`, five skill aliases, and `input`, `session_start`,
-  `agent_start`, `agent_end`, and `before_agent_start` hooks.
-- Mode resolution: environment variables override JSON config; on session
-  start, the latest `ponytail-mode` custom session entry can restore a mode.
-  `/ponytail` changes append that entry. The before-agent hook injects the
-  filtered contents of `skills/ponytail/SKILL.md` unless the mode is `off`.
-- Configuration path: `$XDG_CONFIG_HOME/ponytail/config.json`; Windows falls
-  back to `APPDATA`, otherwise `~/.config/ponytail/config.json`.
-- `scripts/sync-upstream.ts` fetches one resolved upstream commit, validates
-  the LICENSE and six skill files, stages an atomic replacement, rolls back on
-  failure, serializes writers with `.upstream-sync.lock`, and writes
-  `upstream-lock.json` SHA-256 provenance.
+Published package contents are the `files` list in `package.json`. Peer:
+`@oh-my-pi/pi-coding-agent`.
 
-## Key Directories
-
-- `test/` — Bun behavioral and integration-style tests (`*.test.ts`).
-- `scripts/` — maintainer automation; currently `sync-upstream.ts`.
-- `skills/` — vendored Ponytail `SKILL.md` files consumed at runtime. Treat as
-  synchronized upstream content; refresh with `sync:upstream` rather than
-  hand-editing synchronized files.
-- `.github/workflows/` — CI test workflow.
-
-## Development Commands
-
-Use Bun directly; the repository defines no build, typecheck, lint, or format
-script.
+## Commands
 
 ```sh
-# Run the complete focused test suite (also the CI command)
-bun test ./test/*.test.ts
-
-# Refresh vendored skills, LICENSE, and provenance metadata
-bun run sync:upstream
-# Equivalent direct script invocation
-bun run ./scripts/sync-upstream.ts
+bun test ./test/*.test.ts          # or: bun run test
+bun run sync:upstream              # network + writes skills/, LICENSE, lock
 ```
 
-For local OMP plugin use, see `README.md`; common commands include
-`omp install ./omp-ponytail` and `omp plugin list`.
+- Runtime/tooling: **Bun** (CI pins `1.3.14` in
+  `.github/workflows/test.yml`).
+- No lint/format/typecheck scripts. `tsconfig.json` is strict + `bun-types`
+  only.
+- Single-file test: `bun test ./test/extension.test.ts` (or path +
+  `-t "name"`).
 
-## Code Conventions & Common Patterns
+## Architecture (easy to miss)
 
-- Use TypeScript ESM and Node built-ins; keep the extension dependency-free.
-- Keep extension behavior in `index.ts` and expose only intentional helpers.
-  Runtime behavior is event-driven through `ExtensionAPI`, not a framework.
-- Validate unknown host/config input at boundaries. Follow the existing
-  `normalizeMode` / `normalizePersistedMode` pattern before branching on a
-  string value.
-- Model partial host capabilities with narrow local types and optional methods;
-  use optional chaining for UI/session hooks.
-- Guard filesystem, UI, and host-execution boundaries with focused `try/catch`.
-  Invalid or unreadable configuration must degrade safely rather than crash the
-  extension.
-- Persist by merging the existing JSON object so unrelated config keys survive.
-  Environment values take precedence: `PONYTAIL_DEFAULT_MODE`,
-  `PONYTAIL_QUIET_STARTUP`, and `PONYTAIL_HIDE_STATUS`.
-- Prefer dependency injection for external effects. Tests inject fake extension
-  APIs, fetchers, renames, logging, UI callbacks, and execution hooks instead
-  of using a mocking library.
-- Keep upstream publishing atomic. Do not weaken validation, staging,
-  rollback, lock-file, or digest behavior in `scripts/sync-upstream.ts`.
+- **Offline at runtime:** extension reads local
+  `skills/ponytail/SKILL.md` only; no GitHub on OMP startup/prompt inject.
+- **Mode injection:** `before_agent_start` appends filtered skill body unless
+  mode is `off`. Deactivate via `/ponytail off`, or exact user text
+  `stop ponytail` / `normal mode`.
+- **Modes:** `off|lite|full|ultra` (default `full`). Session restores last
+  `ponytail-mode` entry; config default at
+  `$XDG_CONFIG_HOME/ponytail/config.json` (or platform equivalent). Env wins:
+  `PONYTAIL_DEFAULT_MODE`, `PONYTAIL_QUIET_STARTUP`, `PONYTAIL_HIDE_STATUS`.
+- **Skill aliases:** `/ponytail-{review,audit,debt,gain,help}` →
+  `sendUserMessage("/skill:…")`.
+- **`/ponytail update`:** runs `bun run sync:upstream` from
+  `import.meta.dir`, then `context.reload()`. Needs network + write access to
+  the loaded package dir.
+- **Upstream sync:** one commit resolve, then exactly six skills, `LICENSE`,
+  and lock. All-or-nothing write; validates YAML `name:` frontmatter matches
+  directory. Source of truth for skill set: `SKILL_NAMES` in
+  `scripts/sync-upstream.ts`.
 
-## Important Files
+## Testing
 
-- `index.ts` — extension entry point; modes, config persistence, commands,
-  hooks, status UI, and prompt injection.
-- `package.json` — OMP registration, package publication allowlist, and Bun
-  scripts.
-- `skills/ponytail/SKILL.md` — primary instruction text filtered by runtime
-  mode; sibling `skills/ponytail-*/SKILL.md` files back slash-command aliases.
-- `scripts/sync-upstream.ts` — upstream synchronization and transactional
-  publishing.
-- `upstream-lock.json` — upstream commit and file hashes; update only via the
-  synchronization flow.
-- `test/extension.test.ts` — extension harness and behavior coverage.
-- `test/sync-upstream.test.ts` — synchronization failure, rollback, locking,
-  retry, and provenance coverage.
-- `README.md` — installation, runtime command, configuration, and maintainer
-  workflow reference.
+- Framework: `bun:test` only (`describe`/`test`/`expect`/`afterEach`).
+- `test/extension.test.ts`: local harness mocks `ExtensionAPI`;
+  `withTempConfig` sets `XDG_CONFIG_HOME` temp dir and clears Ponytail env.
+  Prefer pure exported helpers over full harness when possible.
+- `test/sync-upstream.test.ts`: temp repo copy + injected `fetch`; never hits
+  real GitHub in tests.
+- No coverage tooling configured. Do not run suites that need live network
+  for verification.
 
-## Runtime/Tooling Preferences
+## Agent constraints
 
-- Required runtime and package tool: **Bun**. CI pins Bun `1.3.14` in
-  `.github/workflows/test.yml`.
-- The package is private and ESM (`"type": "module"`) with peer dependency
-  `@oh-my-pi/pi-coding-agent`.
-- No lockfile, workspace declaration, `tsconfig`, bundler, linter, or formatter
-  configuration is present. Do not introduce tooling or dependencies without a
-  concrete need.
-- Upstream sync requires GitHub network access and writes vendored artifacts;
-  run it deliberately and review the resulting diff and `upstream-lock.json`.
-
-## Testing & QA
-
-- Use Bun's built-in `bun:test` (`describe`, `test`, `expect`, `afterEach`).
-- Place tests in `test/` as `*.test.ts`; keep helpers local unless a real shared
-  abstraction emerges.
-- Test observable behavior and failure paths. Existing tests use temporary
-  XDG/repository directories, reset environment state in `afterEach`, and
-  inject dependencies for deterministic tests.
-- For extension changes, cover command parsing, mode/session persistence,
-  configuration precedence, prompt injection, and UI/execution failures as
-  applicable. For sync changes, cover malformed input, atomicity, rollback,
-  lock contention, retry, and lockfile provenance.
-- There is no coverage tool or threshold. Run `bun test ./test/*.test.ts`
-  before submitting changes; CI runs the same command on `main` pushes and pull
-  requests.
+- Prefer editing `index.ts` / tests / `scripts/sync-upstream.ts`. Treat
+  `skills/**` and lock as sync output — change via `sync:upstream` (or
+  intentional lock-aligned vendor bump), not ad-hoc skill rewrites.
+- After sync or skill-path changes: `bun test ./test/*.test.ts`.
+- OMP install for local link: `omp install .` (see README). Not required to
+  unit-test.

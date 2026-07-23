@@ -1,7 +1,0 @@
-- Keep extension behavior in `index.ts`; expose intentional helpers only.
-- Validate unknown host/config input at boundaries with `normalizeMode`/`normalizePersistedMode`; model optional host capability with narrow local types and optional chaining.
-- Guard filesystem, UI, and host execution boundaries with focused `try/catch`; config failure must degrade safely.
-- Environment overrides JSON config; config writes merge existing object keys.
-- Tests inject fakes for extension APIs, fetchers, renames, logs, UI callbacks, and execution hooks.
-- Preserve all callsites on exported changes; never hand-edit synchronized skills.
-- Read `mem:task_completion` for delivery checks.

@@ -1,4 +1,0 @@
-- Run focused affected Bun test module during implementation, then `rtk bun test ./test/*.test.ts` before delivery.
-- For extension contract changes, cover command parsing, mode/session persistence, config precedence, prompt injection, and relevant UI/execution failures.
-- For sync changes, preserve and test malformed input, atomicity, rollback, locking, retry, and provenance.
-- No project formatter, linter, build, or typecheck command exists.

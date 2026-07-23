@@ -1,5 +1,0 @@
-- TypeScript ESM under Bun; no build, tsconfig, formatter, linter, lockfile, or runtime dependencies.
-- Extension peer API: `@oh-my-pi/pi-coding-agent`; runtime package target is OMP.
-- Bun 1.3.14 is CI runtime.
-- Tests use Bun built-in `bun:test`; no mocking library.
-- Read `mem:suggested_commands` for exact commands.
