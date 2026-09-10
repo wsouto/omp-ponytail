@@ -6,8 +6,8 @@ OMP.
 
 ## Git Workflow
 
-This repository uses local branch merges. A remote may be configured, but pull
-requests and remote publication are outside this workflow.
+This repository uses local branch merges. A remote may be configured, and in
+case, we can do remote work.
 
 1. Start from `main`. Preserve pre-existing user changes and stop if they
    overlap the task.
@@ -34,6 +34,7 @@ requests and remote publication are outside this workflow.
 - Follow the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   format, using `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, and
   `Security` sections.
+- Commits and tags must be signed.
 - Complete the Git Workflow and verify clean `main`.
 
 ## Layout
