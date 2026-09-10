@@ -27,7 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Added the standalone OMP Ponytail extension with runtime modes, slash-command aliases, and six vendored skills.
+- Added the standalone OMP Ponytail extension with runtime modes, slash-command aliases,
+  and six vendored skills.
 - Added the `/ponytail update` command and transactional upstream skill synchronization.
 - Preserved invalid Ponytail configuration instead of overwriting it.
 
