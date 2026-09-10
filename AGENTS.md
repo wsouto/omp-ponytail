@@ -4,6 +4,38 @@ OMP (Oh My Pi) extension only — not OpenCode/Pi. Ports
 [Ponytail](https://github.com/DietrichGebert/ponytail) modes + six skills for
 OMP.
 
+## Git Workflow
+
+This repository uses local branch merges. A remote may be configured, but pull
+requests and remote publication are outside this workflow.
+
+1. Start from `main`. Preserve pre-existing user changes and stop if they
+   overlap the task.
+2. Create a short-lived branch named `<type>/<short-kebab-slug>`, such as
+   `feat/add-dev-vm` or `docs/update-workflow`.
+3. Keep changes focused: one logical task per branch and one self-contained
+   change per commit, with no unrelated edits mixed in.
+4. Add a `CHANGELOG.md` entry under `## [Unreleased]` for user-visible
+   behavior, security, or compatibility changes. Documentation, formatting,
+   and internal maintenance changes do not require an entry.
+5. Run every check relevant to the changed files. Do not merge while a
+   relevant check fails.
+6. Merge into `main` with `git merge --no-ff`, then delete the task branch.
+7. Finish on `main` with no changes from this task. Leave unrelated user
+   changes untouched.
+
+## Notes
+
+- Use the primary working tree for normal sequential work. Create and remove
+  a separate Git worktree only when the task explicitly needs parallel
+  branches.
+- Write commit messages as
+  [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
+- Follow the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
+  format, using `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, and
+  `Security` sections.
+- Complete the Git Workflow and verify clean `main`.
+
 ## Layout
 
 | Path | Role |
