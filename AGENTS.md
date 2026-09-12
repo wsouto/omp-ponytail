@@ -7,7 +7,7 @@ OMP.
 ## Git Workflow
 
 This repository uses local branch merges. A remote may be configured, and in
-case, we can do remote work.
+this case, we can do remote work.
 
 1. Start from `main`. Preserve pre-existing user changes and stop if they
    overlap the task.
